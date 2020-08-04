@@ -6,7 +6,7 @@ const textInput = document.querySelector("#textInput");
 
 const oAuthForm = document.querySelector("#oAuthForm");
 const google = document.querySelector("#google");
-const twitter = document.querySelector("#twitter");
+const microsoft = document.querySelector("#microsoft");
 
 
 
@@ -15,8 +15,8 @@ google.addEventListener("click", (e)=>{
    
 });
 
-twitter.addEventListener("click", (e)=>{
-    location.assign("https://localhost:3000/oauth?socialMedia=twitter");
+microsoft.addEventListener("click", (e)=>{
+    location.assign("https://localhost:3000/oauth?socialMedia=microsoft");
    
 });
 

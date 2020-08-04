@@ -2,6 +2,7 @@ const https = require("https");
 const fs = require("fs");
 
 const  jwt = require("jsonwebtoken");
+const jwkToPem = require('jwk-to-pem');
 const router = require("express").Router();
 
 
@@ -9,13 +10,21 @@ const router = require("express").Router();
 const parser = require("../utils/parsers");
 const oauth = require("../utils/oauth");
 
+
+let openIdProvider;
+let csrfToken;
+
 const clientId = "891216826881-bviuj6h42bfumint33q8fjubv0sbrbd1.apps.googleusercontent.com";
 const secretClientCode = "J08OHq5jfXxic3nVrTAfnLxb";
-const scope = "openid email"
+const scope = "openid profile email"
 const redirect_url = "https://localhost:3000/oauth/login";
 
+const msftAppClientId = "7fe90a47-4b2b-4fc9-b978-6bb7d12bb1ca";
+const msftObjectId = "ff5d4f06-fae5-4da5-942f-61c01e1a2b44";
+const msftTennant = "f8cdef31-a31e-4b4a-93e4-5f571e91255a";
+const client_secret = "A8GFXo7_humC575BEfEsh_1igXp-0M5r-1";
 
-const stateToken = oauth.createCsrfToken();
+
 
 
 oauth.createGoogleUrl(clientId,scope,redirect_url);
@@ -38,22 +47,28 @@ router.post("/login", (req, res)=>{
 
 
 router.get("/oauth", (req, res)=>{
-    let queryParams;
+    csrfToken = oauth.createCsrfToken();
+    let nonce;
+
+
+  
     try{
-        queryParams = parser.urlParser(req.url);
+        openIdProvider = parser.urlParser(req.url).socialMedia;
     }catch(e){
         res.redirect("/");
 
     }
-
-    switch(queryParams.socialMedia){
+  
+    switch(openIdProvider){
         case "google":
-            const googleUrl = oauth.createGoogleUrl(clientId,scope,redirect_url);
+            nonce = oauth.createNoOnce();
+            const googleUrl = oauth.createGoogleUrl(clientId,scope,redirect_url,csrfToken, nonce);
             return res.redirect(googleUrl);
             break;
             break;
-        case "twitter":
-
+        case "microsoft":
+            const microsoftUrl = oauth.createMicrosoftUrl(msftTennant, msftAppClientId, redirect_url, csrfToken);
+            return res.redirect(microsoftUrl);
             break;
 
         default:
@@ -64,91 +79,155 @@ router.get("/oauth", (req, res)=>{
 
 
 router.get("/oauth/login", (req, res)=>{
-    /*
-    const key1 = "-AS7NlginBBXBMgB-ZWn9frB82HvW8jU7sMxk5Frhwc8LR1pJtdrl39yiBGO8Sa-YyuL56JD8rrWesHhLLp76rtW5Xpups_gbzJn3vnbG-d1-b0BEp9Drjd3eMsPzaGQl0mQCBTyhY_D11CINQ1LovLVR8RV7VjpRehkYjwmMrQPa0-I0K5LQi2stEZ-XV7_BPPqMq5g9O-g6O38suQPbZYykBL5J30YdiN9NsyXDObOX28jONsHdj7q2lvtcJDFjupUowPfgHEen_Pfq9ERaNkQ8zyqAPw9htpQ5U-9NDlFrPrBsWPzJ1MdwR-b0ISLAcHFaEfDYrEHalW3lf7Hew"
-    const key2 = "yTrewP0u9KoGSzBgTBR3aTvSGdqEX-haZEFkr-MvPX4IuFAxpIoiuB3wcPIvvNer_yYTYBXOnkLnWz3b2YOH_xW9D2XrtoqsIaEzIKv6cgMKR5CMJ7cWB16NtO8v7C5wP-TRTHt38DXkmpJDvTVWT0VgQwwQO68OLaq-eVgpgbfCD1u6NJaKC8mdTyWl9tj1Kx-T3y0G7Vhj3F6i1T_qyQ8eOB5odjeEvEi3EziD_8_tFJcTePFc62Hmun7aVMB94DL1CS2pa7z18d_dF2jo680cvBDDd1eTzcKCYqvMdiIP-MxuMryPeiNrcwp45w4fr7nGUg3ExUGXXQ63AFu0AQ"
-    const key3 = "-----BEGIN CERTIFICATE-----\nMIIDJjCCAg6gAwIBAgIIXf+K/6DnKnIwDQYJKoZIhvcNAQEFBQAwNjE0MDIGA1UE\nAxMrZmVkZXJhdGVkLXNpZ25vbi5zeXN0ZW0uZ3NlcnZpY2VhY2NvdW50LmNvbTAe\nFw0yMDA3MjcwNDI5MzZaFw0yMDA4MTIxNjQ0MzZaMDYxNDAyBgNVBAMTK2ZlZGVy\nYXRlZC1zaWdub24uc3lzdGVtLmdzZXJ2aWNlYWNjb3VudC5jb20wggEiMA0GCSqG\nSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDJOt7A/S70qgZLMGBMFHdpO9IZ2oRf6Fpk\nQWSv4y89fgi4UDGkiiK4HfBw8i+816v/JhNgFc6eQudbPdvZg4f/Fb0PZeu2iqwh\noTMgq/pyAwpHkIwntxYHXo207y/sLnA/5NFMe3fwNeSakkO9NVZPRWBDDBA7rw4t\nqr55WCmBt8IPW7o0looLyZ1PJaX22PUrH5PfLQbtWGPcXqLVP+rJDx44Hmh2N4S8\nSLcTOIP/z+0UlxN48VzrYea6ftpUwH3gMvUJLalrvPXx390XaOjrzRy8EMN3V5PN\nwoJiq8x2Ig/4zG4yvI96I2tzCnjnDh+vucZSDcTFQZddDrcAW7QBAgMBAAGjODA2\nMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoGCCsG\nAQUFBwMCMA0GCSqGSIb3DQEBBQUAA4IBAQBOLZxvoVWDwZYDjGvWkNJKITwFO5ZW\nbO+lUbnZWsb2XRZgBn7R/RooOd5KY2EHOLa89gicfj6WjhqqhiYSHXMh0JG2dnwX\nLPRknwI9nzCsbUF6FsG3L9isTeZZqX9CqgYBisHfrkf7aSTbgkPa+j+UGtNC/5pm\nkoXs9bbrQmO/JfV96fRIrWb+cSlxC419Zn8DgYZkR6nITVTPEeRU868sezki6jDC\nfLDsi83rB5w/js4Rjt0k2T7TmyXDM+IfJIkWsvw1tkC/9ZKF46T2yrMxJObm9ttH\npmUc4JvK8AynPipoaFQJERhUHO6Je6gKmW2+8foQniHYuV2R1V/wpd6S\n-----END CERTIFICATE-----"
-    const key4 = "-----BEGIN CERTIFICATE-----\nMIIDJjCCAg6gAwIBAgIIfT2mW9k7U7QwDQYJKoZIhvcNAQEFBQAwNjE0MDIGA1UE\nAxMrZmVkZXJhdGVkLXNpZ25vbi5zeXN0ZW0uZ3NlcnZpY2VhY2NvdW50LmNvbTAe\nFw0yMDA3MTkwNDI5MzZaFw0yMDA4MDQxNjQ0MzZaMDYxNDAyBgNVBAMTK2ZlZGVy\nYXRlZC1zaWdub24uc3lzdGVtLmdzZXJ2aWNlYWNjb3VudC5jb20wggEiMA0GCSqG\nSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD4BLs2WCKcEFcEyAH5laf1+sHzYe9byNTu\nwzGTkWuHBzwtHWkm12uXf3KIEY7xJr5jK4vnokPyutZ6weEsunvqu1blem6mz+Bv\nMmfe+dsb53X5vQESn0OuN3d4yw/NoZCXSZAIFPKFj8PXUIg1DUui8tVHxFXtWOlF\n6GRiPCYytA9rT4jQrktCLay0Rn5dXv8E8+oyrmD076Do7fyy5A9tljKQEvknfRh2\nI302zJcM5s5fbyM42wd2PuraW+1wkMWO6lSjA9+AcR6f89+r0RFo2RDzPKoA/D2G\n2lDlT700OUWs+sGxY/MnUx3BH5vQhIsBwcVoR8NisQdqVbeV/sd7AgMBAAGjODA2\nMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoGCCsG\nAQUFBwMCMA0GCSqGSIb3DQEBBQUAA4IBAQAHRqRzVBeXr208KACJmPZCWgxkduPD\n8wbirbV55zAg2wuA5yKCm5yXe1F9gd3FiPAbVF6jMQMdBfFvZPJdkEAuokguTxFd\np5k9snYX7iOe7z6MyA4+lSiA66cbevo8LXY1syAPjJrEiy7oG/MbKhnoxI228ynZ\nzIL08rJ9geEdBWKNv6vdkSmYXZlx1m5br95PoI3vlp1DOBAttRmKeVowsIqZ4TFb\n+MAjg8TcvXaaUU5aSRZXxvXPNnS3Fu6gSEuKHnhBmqdtPId5AGlXXrbslQMSyaNM\nw6vwo9Msm3tx3eLsNvM9jM+EpNUQ1apcZSaF311WDsgqFZWqS+23cj2Z\n-----END CERTIFICATE-----"
-    
-    if(req.cookies.googleOauth){
-        const cookieObj = JSON.parse(req.cookies.googleOauth)
-        console.log()
 
-        jwt.verify(cookieObj["id_token"], key1, (err, decoded)=>{
-           // if(err) console.log(err)
-            console.log("Value", decoded)
-        });
+    if(req.cookies.googleOauth || req.cookies.microsoftOauth){
+        const googleCookie = JSON.parse(req.cookies.googleOauth)
+        const microsoftCookie = JSON.parse(req.cookies.microsoftOauth)
 
-        res.set({"Content-Type": "text/plain"});
-        return res.send(req.cookies.googleOauth);
-    }*/
+        const oAuthProvider = {
+            Google: googleCookie,
+            Microsoft: microsoftCookie
+        }
 
+        console.log(oAuthProvider)
 
-    
-    const parsedUrl = parser.urlParser(req.url);
-    const scope = decodeURIComponent(parsedUrl.scope);
-    //console.log(parsedUrl);
-    //console.log(scope);
-
-
-    const requestBody = `code=${parsedUrl.code}&client_id=${clientId}&client_secret=${secretClientCode}&redirect_uri=${encodeURIComponent("https://localhost:3000/oauth/login")}&grant_type=authorization_code`;
-
-    const tlsOptions = {
-        hostname: "oauth2.googleapis.com",
-        //post:,
-        path: "/token",
-        method: "POST",
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Content-Length": Buffer.byteLength(requestBody)
-        },
-        key:fs.readFileSync("C:\\Users\\Gabriel\\Desktop\\web developpement\\node\\test\\tls/key.pem"),
-        cert: fs.readFileSync("C:\\Users\\Gabriel\\Desktop\\web developpement\\node\\test\\tls/certificate.pem")
-
+        res.set({"Content-Type": "application/json"});
+        return res.send(JSON.stringify(oAuthProvider));
     }
 
+    const parsedUrl = parser.urlParser(req.url);
+    const scope = decodeURIComponent(parsedUrl);
 
-    const request = https.request(tlsOptions, (response)=>{
 
-        let body = [];
-        response.on("data", (data)=>{
-            body.push(data);
-            // const obj2 = JSON.parse(data.toString());
+    switch(openIdProvider){
+        case "microsoft":
+            const microsoftRequestBody = `code=${parsedUrl.code}&client_id=${msftAppClientId}&scope=openid%20offline_access%20https%3A%2F%2Fgraph.microsoft.com%2Fmail.read&redirect_uri=${encodeURIComponent("https://localhost:3000/oauth/login")}&grant_type=authorization_code&client_secret=${encodeURIComponent(client_secret)}`;
             
-
-        }).on("end", ()=>{
-            Buffer.concat(body).toString();
-
-            res.cookie("googleOauth", body.toString(), {httpOnly: true});
-
-            const obj = JSON.parse(body);
-
-            // jwt.verify(obj["id_token"], "J08OHq5jfXxic3nVrTAfnLxb", (err, decoded)=>{
-            //     if(err) console.log(err)
-            //     console.log(decoded)
-            // });
+            const microSoftTlsOptions = {
+                hostname: "login.microsoftonline.com",
+                //post:,
+                path: "/consumers/oauth2/v2.0/token",
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Content-Length": Buffer.byteLength(microsoftRequestBody)
+                },
+                key:fs.readFileSync("C:\\Users\\Gabriel\\Desktop\\web developpement\\node\\test\\tls/key.pem"),
+                cert: fs.readFileSync("C:\\Users\\Gabriel\\Desktop\\web developpement\\node\\test\\tls/certificate.pem")
+                
+            }
             
-            //https://localhost:3000/oauth/login
-
-            console.log(obj);
+            const microsoftRequest = https.request(microSoftTlsOptions, (response)=>{
+                
+                let body = [];
+                response.on("data", (data)=>{
+                    body.push(data);
+                    // const obj2 = JSON.parse(data.toString());
+                    
+                    
+                }).on("end", ()=>{
+                    Buffer.concat(body).toString();
+                    
+                    
+                    res.cookie("microsoftOauth", body.toString(), {httpOnly: true});
+                    
+                    const obj = JSON.parse(body);
+                    console.log(obj);
+                    
+                res.set({"Content-Type": "application/json"});
+                res.send(JSON.stringify(obj));
+                
+                
+                
+                //const base64Body = Buffer.from(obj["id_token"]).toString("base64");
+                /*
+                const key = {
+                    kty: "RSA",
+                    use: "sig",
+                    kid: "1LTMzakihiRla_8z2BEJVXeWMqo",
+                    x5t: "1LTMzakihiRla_8z2BEJVXeWMqo",
+                    n: "3sKcJSD4cHwTY5jYm5lNEzqk3wON1CaARO5EoWIQt5u-X-ZnW61CiRZpWpfhKwRYU153td5R8p-AJDWT-NcEJ0MHU3KiuIEPmbgJpS7qkyURuHRucDM2lO4L4XfIlvizQrlyJnJcd09uLErZEO9PcvKiDHoois2B4fGj7CsAe5UZgExJvACDlsQSku2JUyDmZUZP2_u_gCuqNJM5o0hW7FKRI3MFoYCsqSEmHnnumuJ2jF0RHDRWQpodhlAR6uKLoiWHqHO3aG7scxYMj5cMzkpe1Kq_Dm5yyHkMCSJ_JaRhwymFfV_SWkqd3n-WVZT0ADLEq0RNi9tqZ43noUnO_w",
+                    e: "AQAB",
+                    x5c: [
+                        "MIIDYDCCAkigAwIBAgIJAIB4jVVJ3BeuMA0GCSqGSIb3DQEBCwUAMCkxJzAlBgNVBAMTHkxpdmUgSUQgU1RTIFNpZ25pbmcgUHVibGljIEtleTAeFw0xNjA0MDUxNDQzMzVaFw0yMTA0MDQxNDQzMzVaMCkxJzAlBgNVBAMTHkxpdmUgSUQgU1RTIFNpZ25pbmcgUHVibGljIEtleTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAN7CnCUg+HB8E2OY2JuZTRM6pN8DjdQmgETuRKFiELebvl/mZ1utQokWaVqX4SsEWFNed7XeUfKfgCQ1k/jXBCdDB1NyoriBD5m4CaUu6pMlEbh0bnAzNpTuC+F3yJb4s0K5ciZyXHdPbixK2RDvT3Lyogx6KIrNgeHxo+wrAHuVGYBMSbwAg5bEEpLtiVMg5mVGT9v7v4ArqjSTOaNIVuxSkSNzBaGArKkhJh557pridoxdERw0VkKaHYZQEerii6Ilh6hzt2hu7HMWDI+XDM5KXtSqvw5ucsh5DAkifyWkYcMphX1f0lpKnd5/llWU9AAyxKtETYvbameN56FJzv8CAwEAAaOBijCBhzAdBgNVHQ4EFgQU9IdLLpbC2S8Wn1MCXsdtFac9SRYwWQYDVR0jBFIwUIAU9IdLLpbC2S8Wn1MCXsdtFac9SRahLaQrMCkxJzAlBgNVBAMTHkxpdmUgSUQgU1RTIFNpZ25pbmcgUHVibGljIEtleYIJAIB4jVVJ3BeuMAsGA1UdDwQEAwIBxjANBgkqhkiG9w0BAQsFAAOCAQEAXk0sQAib0PGqvwELTlflQEKS++vqpWYPW/2gCVCn5shbyP1J7z1nT8kE/ZDVdl3LvGgTMfdDHaRF5ie5NjkTHmVOKbbHaWpTwUFbYAFBJGnx+s/9XSdmNmW9GlUjdpd6lCZxsI6888r0ptBgKINRRrkwMlq3jD1U0kv4JlsIhafUIOqGi4+hIDXBlY0F/HJPfUU75N885/r4CCxKhmfh3PBM35XOch/NGC67fLjqLN+TIWLoxnvil9m3jRjqOA9u50JUeDGZABIYIMcAdLpI2lcfru4wXcYXuQul22nAR7yOyGKNOKULoOTE4t4AeGRqCogXSxZgaTgKSBhvhE+MGg=="
+                    ],
+                    issuer: "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0"
+                }
+                
+                const pem = jwkToPem(key)
+                jwt.verify(obj["id_token"], pem, (err, decoded)=>{
+                    console.log(decoded);
+                });
+                */ 
+                }).on("error", (err)=>{
+                    console.log(err.message);
+                })
+                
+            })
             
-            res.set({"Content-Type": "text/plain"});
-            res.send(body.toString());
-        })
-      
-    })
+            microsoftRequest.write(microsoftRequestBody);
+            microsoftRequest.end();
 
-    request.write(requestBody);
-    request.end();
+            break;
+        case "google":
+            const googleRequestBody = `code=${parsedUrl.code}&client_id=${clientId}&client_secret=${secretClientCode}&redirect_uri=${encodeURIComponent("https://localhost:3000/oauth/login")}&grant_type=authorization_code`;
+        
+            const googleTlsOptions = {
+                hostname: "oauth2.googleapis.com",
+                //post:,
+                path: "/token",
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Content-Length": Buffer.byteLength(googleRequestBody)
+                },
+                key:fs.readFileSync("C:\\Users\\Gabriel\\Desktop\\web developpement\\node\\test\\tls/key.pem"),
+                cert: fs.readFileSync("C:\\Users\\Gabriel\\Desktop\\web developpement\\node\\test\\tls/certificate.pem")
+        
+            }
+        
+        
+            const googleRequest = https.request(googleTlsOptions, (response)=>{
+        
+                let body = [];
+                response.on("data", (data)=>{
+                    body.push(data);
+                    // const obj2 = JSON.parse(data.toString());
+                    
+        
+                }).on("end", ()=>{
+                    Buffer.concat(body).toString();
+                
+        
+                    res.cookie("googleOauth", body.toString(), {httpOnly: true});
+                    
+                    const obj = JSON.parse(body);
+                    const base64Body = Buffer.from(obj["id_token"]).toString("base64");
+                    console.log(base64Body)
+        
+                    // jwt.verify(obj["id_token"], "J08OHq5jfXxic3nVrTAfnLxb", (err, decoded)=>{
+                    //     if(err) console.log(err)
+                    //     console.log(decoded)
+                    // });
+                    
+                    //https://localhost:3000/oauth/login
+        
+                    //console.log(obj);
+        
+                    
+        
+                    res.set({"Content-Type": "application/json"});
+                    res.send(body.toString());
+                })
+            
+            })
+        
+            googleRequest.write(googleRequestBody);
+            googleRequest.end();
 
-
-    /*
-    /oauth/login?code=4%2F2gGTHD8fPn0G3zYWUoO9uOQ2kzij6SpQv125AE2wmVzy12YYLAbRxXiNNRNFcSyWThwN4lSzCezfQn9qTyfsYys&
-    scope=email+openid+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&
-    authuser=0&
-    prompt=consent
-    */
-    
+            break;
+        
+    }
     
 })
 
